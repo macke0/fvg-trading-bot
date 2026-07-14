@@ -1,0 +1,14 @@
+# Data & output are generated, not source
+/data/*.csv
+/output/
+
+# Go build artifacts
+/go/backtest
+/go/backtest.exe
+*.exe
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
