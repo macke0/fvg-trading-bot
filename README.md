@@ -56,7 +56,34 @@ timestamp,open,high,low,close,volume
 
 ## Usage
 
-1. Fetch data (needs `pip install -r python/requirements.txt`):
+1. Fetch data. Two options:
+
+   **a) Alpaca (recommended — years of history, pure Go, no Python).** Get free
+   API keys at <https://app.alpaca.markets> (Home → API Keys), then set them as
+   environment variables and run `cmd/fetch`:
+
+   ```bash
+   # bash / WSL
+   export APCA_API_KEY_ID=your_key_id
+   export APCA_API_SECRET_KEY=your_secret
+   ```
+   ```powershell
+   # Windows PowerShell
+   $env:APCA_API_KEY_ID = "your_key_id"
+   $env:APCA_API_SECRET_KEY = "your_secret"
+   ```
+   ```
+   # from the go/ directory
+   go run ./cmd/fetch --symbols AAPL,MSFT,NVDA --timeframe 5Min --start 2022-01-01 --end 2024-01-01
+   ```
+
+   The free tier uses the IEX feed: prices are accurate for liquid names, but
+   volume is IEX-only (understated). Flags: `--symbols`, `--timeframe`
+   (`1Min`/`5Min`/`15Min`/`1Hour`/`1Day`), `--start`/`--end` (`YYYY-MM-DD`),
+   `--feed` (`iex` free / `sip` paid), `--out` (data dir). Keys are read from the
+   environment only — never passed as flags.
+
+   **b) Yahoo Finance (no signup, but capped at 60 days for intraday):**
 
    ```
    python python/fetch_data.py --tickers AAPL MSFT NVDA --period 60d --interval 5m
