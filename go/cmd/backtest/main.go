@@ -22,6 +22,7 @@ func main() {
 	dataDir := flag.String("data", "../data", "directory containing <SYMBOL>.csv files")
 	outPath := flag.String("out", "../output/results.csv", "path to write results CSV")
 	symbolsCSV := flag.String("symbols", "AAPL,MSFT,NVDA", "comma-separated symbols to backtest")
+	stratsCSV := flag.String("strategies", "all", "comma-separated strategies to run ("+strings.Join(strategy.Keys(), ", ")+", or all)")
 	cost := flag.Float64("cost", 0, "flat cost per trade side (commission + slippage, in price units)")
 	flag.Parse()
 
@@ -30,9 +31,9 @@ func main() {
 		log.Fatal("no symbols specified")
 	}
 
-	// The set of strategies to run. For now just FVG; add more here later.
-	strategies := []strategy.Strategy{
-		strategy.NewFVG(),
+	strategies, err := strategy.Select(splitCSV(*stratsCSV))
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	cfg := engine.Config{CostPerTrade: *cost}
@@ -60,12 +61,22 @@ func main() {
 	engine.PrintSummary(all)
 }
 
-func splitSymbols(s string) []string {
+// splitCSV splits a comma-separated flag value into trimmed, non-empty parts.
+func splitCSV(s string) []string {
 	var out []string
 	for _, part := range strings.Split(s, ",") {
 		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, strings.ToUpper(p))
+			out = append(out, p)
 		}
 	}
 	return out
+}
+
+// splitSymbols is splitCSV with symbols upper-cased to match the data filenames.
+func splitSymbols(s string) []string {
+	parts := splitCSV(s)
+	for i := range parts {
+		parts[i] = strings.ToUpper(parts[i])
+	}
+	return parts
 }

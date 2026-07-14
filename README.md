@@ -1,7 +1,8 @@
 # fvg-trading-bot
 
-A small, polyglot trading-bot project. The first strategy is **FVG (Fair Value
-Gap)**, backtested on historical intraday data before any real capital is used.
+A small, polyglot trading-bot project. Strategies are backtested on historical
+intraday data before any real capital is used. The first strategy was **FVG
+(Fair Value Gap)**; **SMA-cross** and **liquidity-sweep** followed.
 
 - **Go** — the backtest engine and strategies (fast, zero external dependencies,
   reads/writes plain CSV).
@@ -29,6 +30,21 @@ fvg-trading-bot/
     └── analyze.py            # output/results.csv -> performance report
 ```
 
+## Strategies
+
+All three take entries only in the early US session (09:30–12:00 ET) and place a
+stop just beyond a structural level, with a target at a multiple of that risk.
+
+- **`fvg` — FVG_Trend.** Finds a fair value gap (a 3-bar imbalance) in the recent
+  past, then enters when price returns to test it and holds, in the direction of
+  the trend (price vs. 100-SMA). Risk-reward 1.5.
+- **`sma` — SMA_Cross_Volume.** Enters when price crosses the 100-SMA on
+  above-average volume; stop beyond the recent swing. Risk-reward 2.0.
+- **`liq` — Liquidity_Sweep_MTF.** Aggregates the 5-minute bars into a
+  higher timeframe, finds its swing highs/lows, and enters when a bar wicks past
+  a level (sweeping liquidity) but closes back inside and the next bar confirms.
+  Risk-reward 2.0.
+
 ## Data format
 
 `data/<SYMBOL>.csv` with a header and unix-second timestamps:
@@ -49,11 +65,15 @@ timestamp,open,high,low,close,volume
 2. Run the backtest (from the `go/` directory):
 
    ```
-   go run ./cmd/backtest --symbols AAPL,MSFT,NVDA --cost 0
+   go run ./cmd/backtest --symbols AAPL,MSFT,NVDA --strategies all --cost 0
    ```
 
-   Flags: `--data` (data dir), `--out` (results path), `--symbols`,
-   `--cost` (flat per-side cost in price units, models commission + slippage).
+   Flags:
+   - `--symbols` — comma-separated tickers (default `AAPL,MSFT,NVDA`)
+   - `--strategies` — which to run: `fvg`, `sma`, `liq`, or `all` (default `all`)
+   - `--cost` — flat per-side cost in price units (models commission + slippage)
+   - `--data` — data directory (default `../data`)
+   - `--out` — results path (default `../output/results.csv`)
 
 3. Analyze results:
 
