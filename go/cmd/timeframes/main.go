@@ -36,6 +36,7 @@ func main() {
 	stratName := flag.String("strategy", "sma", "strategy: sma or liq")
 	factorsCSV := flag.String("factors", "1,3,6,12", "aggregation factors on the 5-min base (1=5min, 3=15min, 6=30min, 12=60min)")
 	cost := flag.Float64("cost", 0.02, "flat cost per trade side")
+	borrow := flag.Float64("borrow-rate", 0, "annualized short-borrow fee (e.g. 0.005 = 0.5%/yr)")
 	split := flag.Float64("split", 0.7, "fraction used as the in-sample head; the tail is the held-out test")
 
 	// SMA knobs (used when --strategy sma).
@@ -105,10 +106,11 @@ func main() {
 			if len(agg) == 0 {
 				continue
 			}
-			full = append(full, engine.Run(build(), sym, agg, engine.Config{CostPerTrade: *cost})...)
+			cfg := engine.Config{CostPerTrade: *cost, BorrowRateAnnual: *borrow}
+			full = append(full, engine.Run(build(), sym, agg, cfg)...)
 
 			cut := int(float64(len(agg)) * *split)
-			test = append(test, engine.Run(build(), sym, agg[cut:], engine.Config{CostPerTrade: *cost})...)
+			test = append(test, engine.Run(build(), sym, agg[cut:], cfg)...)
 		}
 
 		fs := summarize(full)

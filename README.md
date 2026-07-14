@@ -168,6 +168,11 @@ timestamp,open,high,low,close,volume
    and return-per-unit-of-drawdown (risk-adjusted). A strategy that earns less
    than buy-and-hold can still win if it did so with far smaller drawdown.
 
+   `--borrow-rate` charges an annualized short-borrow fee (e.g. `0.005` = 0.5%/yr,
+   typical for liquid large caps), prorated by each short's holding time. The
+   same flag works on `backtest`, `walkforward`, and `timeframes`. Because this
+   strategy holds positions only briefly, even high borrow rates barely dent it.
+
 ## Backtest assumptions
 
 - One open position at a time.

@@ -34,6 +34,7 @@ func main() {
 	stratName := flag.String("strategy", "sma", "strategy: sma or liq")
 	factor := flag.Int("factor", 1, "timeframe aggregation on the 5-min base (1=5min, 3=15min, ...)")
 	cost := flag.Float64("cost", 0.02, "flat cost per trade side")
+	borrow := flag.Float64("borrow-rate", 0, "annualized short-borrow fee (e.g. 0.005 = 0.5%/yr); charged on shorts by holding time")
 
 	smaPeriod := flag.Int("sma-period", 100, "SMA period in bars")
 	volThreshold := flag.Float64("vol-threshold", 1.2, "volume filter multiple; 0 disables it")
@@ -90,7 +91,8 @@ func main() {
 		bhDD := buyHoldMaxDrawdownPct(bars)
 
 		var stratSum engine.Summary
-		if s := engine.Summarize(engine.Run(build(), sym, bars, engine.Config{CostPerTrade: *cost})); len(s) > 0 {
+		cfg := engine.Config{CostPerTrade: *cost, BorrowRateAnnual: *borrow}
+		if s := engine.Summarize(engine.Run(build(), sym, bars, cfg)); len(s) > 0 {
 			stratSum = s[0]
 		}
 		stratRet := stratSum.TotalPnL / avg * 100

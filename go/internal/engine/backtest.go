@@ -18,20 +18,31 @@ type TradeRecord struct {
 	ProfitLoss float64
 }
 
+// secondsPerYear is used to prorate the annualized borrow rate over a position's
+// holding time.
+const secondsPerYear = 365 * 24 * 60 * 60
+
 // Config controls execution assumptions applied on top of the raw strategy.
 type Config struct {
 	// CostPerTrade is a flat cost (commission + slippage, in price units)
 	// charged once on entry and once on exit. Zero models a frictionless market.
 	CostPerTrade float64
+
+	// BorrowRateAnnual is the annualized stock-borrow fee charged on SHORT
+	// positions only, applied to the position's notional (entry price x size)
+	// prorated by holding time. e.g. 0.005 = 0.5%/yr (typical liquid large cap);
+	// hard-to-borrow names can be much higher. Zero models free shorting.
+	BorrowRateAnnual float64
 }
 
 type position struct {
-	open     bool
-	isLong   bool
-	entry    float64
-	stopLoss float64
-	target   float64
-	size     float64
+	open      bool
+	isLong    bool
+	entry     float64
+	stopLoss  float64
+	target    float64
+	size      float64
+	entryTime int64
 }
 
 // Run walks bars in order, feeding each to the strategy and simulating a single
@@ -58,7 +69,7 @@ func Run(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []Tra
 					Timestamp:  bar.Timestamp,
 					Action:     action,
 					Price:      price,
-					ProfitLoss: pnl(pos, price, cfg.CostPerTrade),
+					ProfitLoss: pnl(pos, price, bar.Timestamp, cfg),
 				})
 				pos = position{}
 			}
@@ -76,12 +87,13 @@ func Run(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []Tra
 			size = 1.0
 		}
 		pos = position{
-			open:     true,
-			isLong:   sig.Action == types.Buy,
-			entry:    bar.Close,
-			stopLoss: sig.StopLoss,
-			target:   sig.Target,
-			size:     size,
+			open:      true,
+			isLong:    sig.Action == types.Buy,
+			entry:     bar.Close,
+			stopLoss:  sig.StopLoss,
+			target:    sig.Target,
+			size:      size,
+			entryTime: bar.Timestamp,
 		}
 		records = append(records, TradeRecord{
 			Strategy:  s.Name(),
@@ -100,7 +112,7 @@ func Run(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []Tra
 			Timestamp:  last.Timestamp,
 			Action:     "CLOSE_EOD",
 			Price:      last.Close,
-			ProfitLoss: pnl(pos, last.Close, cfg.CostPerTrade),
+			ProfitLoss: pnl(pos, last.Close, last.Timestamp, cfg),
 		})
 	}
 
@@ -128,14 +140,24 @@ func checkExit(pos position, bar types.Bar) (price float64, action string, hit b
 	return 0, "", false
 }
 
-// pnl is the realized profit/loss of closing pos at exitPrice, net of the round
-// trip's entry+exit costs.
-func pnl(pos position, exitPrice, costPerTrade float64) float64 {
+// pnl is the realized profit/loss of closing pos at exitPrice/exitTime, net of
+// the round trip's entry+exit costs and, for shorts, the prorated borrow fee.
+func pnl(pos position, exitPrice float64, exitTime int64, cfg Config) float64 {
 	var gross float64
 	if pos.isLong {
 		gross = (exitPrice - pos.entry) * pos.size
 	} else {
 		gross = (pos.entry - exitPrice) * pos.size
 	}
-	return gross - 2*costPerTrade*pos.size
+	net := gross - 2*cfg.CostPerTrade*pos.size
+
+	// Borrow fee applies to shorts only, on notional, prorated by holding time.
+	if !pos.isLong && cfg.BorrowRateAnnual > 0 {
+		held := exitTime - pos.entryTime
+		if held > 0 {
+			notional := pos.entry * pos.size
+			net -= notional * cfg.BorrowRateAnnual * (float64(held) / secondsPerYear)
+		}
+	}
+	return net
 }
