@@ -81,6 +81,22 @@ timestamp,open,high,low,close,volume
    python python/analyze.py
    ```
 
+4. Plot an equity curve (pure Go, no Python needed — writes an SVG):
+
+   ```
+   go run ./cmd/plot --in ../output/results.csv --out ../output/equity.svg
+   ```
+
+5. Sweep liquidity-sweep parameters to check robustness / overfitting:
+
+   ```
+   go run ./cmd/sweep --symbols AAPL,MSFT,NVDA --cost 0.02 --top 15
+   ```
+
+   It prints the best combos plus a distribution (how many of the grid were
+   profitable, the median, and where the default params rank) — a broad plateau
+   is more trustworthy than a lone spike.
+
 ## Backtest assumptions
 
 - One open position at a time.
