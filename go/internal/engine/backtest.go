@@ -6,9 +6,13 @@ import (
 	"fvgbot/internal/types"
 )
 
+// secondsPerYear is used to prorate the annualized borrow rate over a position's
+// holding time.
+const secondsPerYear = 365 * 24 * 60 * 60
+
 // TradeRecord is one row of backtest output. An entry row uses Action BUY/SELL
 // with ProfitLoss 0; the matching exit row uses an Action starting with "CLOSE"
-// and carries the realized ProfitLoss.
+// and carries the realized ProfitLoss (per share, net of costs).
 type TradeRecord struct {
 	Strategy   string
 	Symbol     string
@@ -17,10 +21,6 @@ type TradeRecord struct {
 	Price      float64
 	ProfitLoss float64
 }
-
-// secondsPerYear is used to prorate the annualized borrow rate over a position's
-// holding time.
-const secondsPerYear = 365 * 24 * 60 * 60
 
 // Config controls execution assumptions applied on top of the raw strategy.
 type Config struct {
@@ -35,6 +35,21 @@ type Config struct {
 	BorrowRateAnnual float64
 }
 
+// ClosedTrade is a completed round trip with everything needed for position
+// sizing and equity accounting. Prices and P/L are per share.
+type ClosedTrade struct {
+	Symbol       string
+	Long         bool
+	EntryTime    int64
+	ExitTime     int64
+	Entry        float64
+	Stop         float64
+	Exit         float64
+	ExitReason   string  // "CLOSE_STOP" / "CLOSE_TARGET" / "CLOSE_EOD"
+	PnLPerShare  float64 // net of costs (and borrow, for shorts)
+	RiskPerShare float64 // |entry - stop|, the loss-per-share if stopped out
+}
+
 type position struct {
 	open      bool
 	isLong    bool
@@ -45,8 +60,8 @@ type position struct {
 	entryTime int64
 }
 
-// Run walks bars in order, feeding each to the strategy and simulating a single
-// open position at a time.
+// RunTrades walks bars in order and returns the completed trades. Fill/exit
+// assumptions:
 //
 //   - Entries fill at the CLOSE of the signal bar.
 //   - Stop/target are checked only on SUBSEQUENT bars, using each bar's
@@ -54,23 +69,16 @@ type position struct {
 //   - If one bar's range spans both stop and target, the stop is taken first
 //     (conservative / worst-case).
 //   - A position still open at the end is closed at the last bar's close.
-func Run(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []TradeRecord {
-	var records []TradeRecord
+func RunTrades(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []ClosedTrade {
+	var trades []ClosedTrade
 	var pos position
 
 	for i := range bars {
 		bar := bars[i]
 
 		if pos.open {
-			if price, action, hit := checkExit(pos, bar); hit {
-				records = append(records, TradeRecord{
-					Strategy:   s.Name(),
-					Symbol:     symbol,
-					Timestamp:  bar.Timestamp,
-					Action:     action,
-					Price:      price,
-					ProfitLoss: pnl(pos, price, bar.Timestamp, cfg),
-				})
+			if price, reason, hit := checkExit(pos, bar); hit {
+				trades = append(trades, closeTrade(pos, symbol, price, reason, bar.Timestamp, cfg))
 				pos = position{}
 			}
 			// At most one action per bar; don't re-enter on an exit bar.
@@ -81,7 +89,6 @@ func Run(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []Tra
 		if sig.Action != types.Buy && sig.Action != types.Sell {
 			continue
 		}
-
 		size := sig.Size
 		if size <= 0 {
 			size = 1.0
@@ -95,33 +102,37 @@ func Run(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []Tra
 			size:      size,
 			entryTime: bar.Timestamp,
 		}
-		records = append(records, TradeRecord{
-			Strategy:  s.Name(),
-			Symbol:    symbol,
-			Timestamp: bar.Timestamp,
-			Action:    string(sig.Action),
-			Price:     bar.Close,
-		})
 	}
 
 	if pos.open && len(bars) > 0 {
 		last := bars[len(bars)-1]
-		records = append(records, TradeRecord{
-			Strategy:   s.Name(),
-			Symbol:     symbol,
-			Timestamp:  last.Timestamp,
-			Action:     "CLOSE_EOD",
-			Price:      last.Close,
-			ProfitLoss: pnl(pos, last.Close, last.Timestamp, cfg),
-		})
+		trades = append(trades, closeTrade(pos, symbol, last.Close, "CLOSE_EOD", last.Timestamp, cfg))
 	}
 
+	return trades
+}
+
+// Run is RunTrades expanded into entry+exit TradeRecords (the CSV / summary
+// view). ProfitLoss on the exit row is per share, net of costs.
+func Run(s strategy.Strategy, symbol string, bars []types.Bar, cfg Config) []TradeRecord {
+	name := s.Name()
+	var records []TradeRecord
+	for _, t := range RunTrades(s, symbol, bars, cfg) {
+		action := "BUY"
+		if !t.Long {
+			action = "SELL"
+		}
+		records = append(records,
+			TradeRecord{Strategy: name, Symbol: symbol, Timestamp: t.EntryTime, Action: action, Price: t.Entry},
+			TradeRecord{Strategy: name, Symbol: symbol, Timestamp: t.ExitTime, Action: t.ExitReason, Price: t.Exit, ProfitLoss: t.PnLPerShare},
+		)
+	}
 	return records
 }
 
 // checkExit reports whether bar triggers the position's stop or target. Stop is
 // checked first so an ambiguous bar counts as a loss.
-func checkExit(pos position, bar types.Bar) (price float64, action string, hit bool) {
+func checkExit(pos position, bar types.Bar) (price float64, reason string, hit bool) {
 	if pos.isLong {
 		if bar.Low <= pos.stopLoss {
 			return pos.stopLoss, "CLOSE_STOP", true
@@ -140,24 +151,37 @@ func checkExit(pos position, bar types.Bar) (price float64, action string, hit b
 	return 0, "", false
 }
 
-// pnl is the realized profit/loss of closing pos at exitPrice/exitTime, net of
-// the round trip's entry+exit costs and, for shorts, the prorated borrow fee.
-func pnl(pos position, exitPrice float64, exitTime int64, cfg Config) float64 {
-	var gross float64
-	if pos.isLong {
-		gross = (exitPrice - pos.entry) * pos.size
-	} else {
-		gross = (pos.entry - exitPrice) * pos.size
+// closeTrade builds a ClosedTrade from a position and its exit, computing the
+// per-share P/L net of the round-trip costs and (for shorts) the borrow fee.
+func closeTrade(pos position, symbol string, exitPrice float64, reason string, exitTime int64, cfg Config) ClosedTrade {
+	risk := pos.entry - pos.stopLoss
+	if risk < 0 {
+		risk = -risk
 	}
-	net := gross - 2*cfg.CostPerTrade*pos.size
 
-	// Borrow fee applies to shorts only, on notional, prorated by holding time.
+	var grossPS float64
+	if pos.isLong {
+		grossPS = exitPrice - pos.entry
+	} else {
+		grossPS = pos.entry - exitPrice
+	}
+	netPS := grossPS - 2*cfg.CostPerTrade
 	if !pos.isLong && cfg.BorrowRateAnnual > 0 {
-		held := exitTime - pos.entryTime
-		if held > 0 {
-			notional := pos.entry * pos.size
-			net -= notional * cfg.BorrowRateAnnual * (float64(held) / secondsPerYear)
+		if held := exitTime - pos.entryTime; held > 0 {
+			netPS -= pos.entry * cfg.BorrowRateAnnual * (float64(held) / secondsPerYear)
 		}
 	}
-	return net
+
+	return ClosedTrade{
+		Symbol:       symbol,
+		Long:         pos.isLong,
+		EntryTime:    pos.entryTime,
+		ExitTime:     exitTime,
+		Entry:        pos.entry,
+		Stop:         pos.stopLoss,
+		Exit:         exitPrice,
+		ExitReason:   reason,
+		PnLPerShare:  netPS,
+		RiskPerShare: risk,
+	}
 }

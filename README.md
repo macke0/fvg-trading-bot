@@ -173,6 +173,20 @@ timestamp,open,high,low,close,volume
    same flag works on `backtest`, `walkforward`, and `timeframes`. Because this
    strategy holds positions only briefly, even high borrow rates barely dent it.
 
+10. Account simulation — real position sizing and risk metrics:
+
+    ```
+    go run ./cmd/account --strategy sma --vol-threshold 0 --factor 3 \
+        --capital 10000 --risk 0.01 --cost 0.02 --borrow-rate 0.005
+    ```
+
+    Simulates one compounding account trading all symbols together, sizing each
+    trade to risk a fixed % of equity (`--risk`), with a finite buying-power cap
+    (`--max-leverage`). Reports CAGR, max drawdown %, Sharpe, and profit factor —
+    the numbers you'd actually judge an account by. Trades that don't fit the
+    buying power are skipped and counted, which reveals capital constraints the
+    per-symbol benchmark hides.
+
 ## Backtest assumptions
 
 - One open position at a time.
