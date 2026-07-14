@@ -158,6 +158,16 @@ timestamp,open,high,low,close,volume
    profitable months and whether the total survives removing its single best
    month. `--factor` picks the timeframe; strategy knobs as in cmd/timeframes.
 
+9. Benchmark vs buy-and-hold — does the strategy actually add value?
+
+   ```
+   go run ./cmd/benchmark --strategy sma --vol-threshold 0 --factor 3 --cost 0.02
+   ```
+
+   Compares the strategy against simply holding each symbol, in both raw return
+   and return-per-unit-of-drawdown (risk-adjusted). A strategy that earns less
+   than buy-and-hold can still win if it did so with far smaller drawdown.
+
 ## Backtest assumptions
 
 - One open position at a time.
