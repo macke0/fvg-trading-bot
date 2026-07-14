@@ -147,6 +147,17 @@ timestamp,open,high,low,close,volume
    vs. edge: `--sma-period`, `--vol-threshold` (0 disables the filter),
    `--session=false` (all hours), and for liq `--rr`/`--htf`/`--lookback`.
 
+8. Walk-forward — is the edge consistent across time, or a few lucky months?
+
+   ```
+   go run ./cmd/walkforward --strategy sma --vol-threshold 0 --factor 1 --cost 0.02
+   ```
+
+   Runs the strategy continuously (fixed default params, so every month is
+   out-of-sample) and buckets closed trades by calendar month. Reports the % of
+   profitable months and whether the total survives removing its single best
+   month. `--factor` picks the timeframe; strategy knobs as in cmd/timeframes.
+
 ## Backtest assumptions
 
 - One open position at a time.
