@@ -187,6 +187,22 @@ timestamp,open,high,low,close,volume
     buying power are skipped and counted, which reveals capital constraints the
     per-symbol benchmark hides.
 
+11. Paper trading — run the strategy live on Alpaca's PAPER account:
+
+    ```
+    go run ./cmd/paper --symbols AAPL,MSFT,NVDA --timeframe 15Min --risk 0.005
+    go run ./cmd/paper --symbols AAPL,MSFT,NVDA --submit    # actually place orders
+    ```
+
+    Polls for new bars, runs the strategy, and on a signal submits a bracket
+    order (market entry + stop + target) sized to risk `--risk` of equity.
+
+    Safety: the broker endpoint is hardcoded to the PAPER host — this tool cannot
+    reach live trading. It is observe-only by default (logs what it would do);
+    `--submit` is required to place paper orders. Use your Alpaca **paper** keys
+    in `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY`. This is the honest test of the
+    edge: it measures the real slippage a backtest cannot.
+
 ## Backtest assumptions
 
 - One open position at a time.
