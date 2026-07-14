@@ -135,6 +135,18 @@ timestamp,open,high,low,close,volume
    loses on test (it does, on this data), the sweep was fitting noise — a
    built-in warning against trusting optimized in-sample results.
 
+7. Compare timeframes side by side (aggregates the 5-min base into higher
+   timeframes, day-aware so no bar spans the overnight gap):
+
+   ```
+   go run ./cmd/timeframes --strategy sma --factors 1,3,6,12 --cost 0.02
+   ```
+
+   Each row shows whole-period P/L AND held-out test P/L (last `--split`), so an
+   in-sample number can't fool you. Strategy knobs let you trade off frequency
+   vs. edge: `--sma-period`, `--vol-threshold` (0 disables the filter),
+   `--session=false` (all hours), and for liq `--rr`/`--htf`/`--lookback`.
+
 ## Backtest assumptions
 
 - One open position at a time.

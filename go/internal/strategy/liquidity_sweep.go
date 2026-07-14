@@ -11,21 +11,23 @@ import (
 // wicks past an HTF level (sweeping the liquidity resting there) but closes back
 // inside, and the next LTF bar confirms the reversal.
 type LiquiditySweep struct {
-	HTFFactor     int     // how many LTF bars make one HTF bar (e.g. 3 => 5m->15m)
-	SwingLookback int     // number of HTF bars to search for swing levels
-	SwingMinAge   int     // skip the most recent N HTF bars (let levels establish)
-	RiskReward    float64 // target distance as a multiple of the stop distance
-	Buffer        float64 // padding beyond the sweep extreme for the stop
+	HTFFactor        int     // how many LTF bars make one HTF bar (e.g. 3 => 5m->15m)
+	SwingLookback    int     // number of HTF bars to search for swing levels
+	SwingMinAge      int     // skip the most recent N HTF bars (let levels establish)
+	RiskReward       float64 // target distance as a multiple of the stop distance
+	Buffer           float64 // padding beyond the sweep extreme for the stop
+	EarlySessionOnly bool    // restrict entries to 09:30-12:00 ET
 }
 
 // NewLiquiditySweep returns a LiquiditySweep strategy with sensible defaults.
 func NewLiquiditySweep() *LiquiditySweep {
 	return &LiquiditySweep{
-		HTFFactor:     3,  // 5-minute -> 15-minute
-		SwingLookback: 20, // 20 HTF bars = 5 hours of 15-minute data
-		SwingMinAge:   2,
-		RiskReward:    2.0,
-		Buffer:        0.01,
+		HTFFactor:        3,  // 5-minute -> 15-minute
+		SwingLookback:    20, // 20 HTF bars = 5 hours of 15-minute data
+		SwingMinAge:      2,
+		RiskReward:       2.0,
+		Buffer:           0.01,
+		EarlySessionOnly: true,
 	}
 }
 
@@ -38,7 +40,7 @@ func (s *LiquiditySweep) OnBar(bar types.Bar, history []types.Bar) types.Signal 
 	if len(history) < minLTFBars {
 		return types.Signal{Action: types.Hold, Reason: "insufficient data"}
 	}
-	if !inEarlySession(bar.Timestamp) {
+	if s.EarlySessionOnly && !inEarlySession(bar.Timestamp) {
 		return types.Signal{Action: types.Hold, Reason: "outside early session"}
 	}
 

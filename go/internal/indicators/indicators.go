@@ -65,6 +65,28 @@ func SwingHigh(bars []types.Bar, lookback int) float64 {
 	return highest
 }
 
+// aggregateGroup collapses a slice of bars into one bar: first open, last close,
+// max high, min low, summed volume, timestamp of the first bar.
+func aggregateGroup(group []types.Bar) types.Bar {
+	agg := types.Bar{
+		Timestamp: group[0].Timestamp,
+		Open:      group[0].Open,
+		High:      group[0].High,
+		Low:       group[0].Low,
+		Close:     group[len(group)-1].Close,
+	}
+	for _, b := range group {
+		if b.High > agg.High {
+			agg.High = b.High
+		}
+		if b.Low < agg.Low {
+			agg.Low = b.Low
+		}
+		agg.Volume += b.Volume
+	}
+	return agg
+}
+
 // AggregateBars groups every `factor` consecutive bars into a single
 // higher-timeframe bar (e.g. factor=3 turns 5-minute bars into 15-minute bars).
 // A trailing partial group is dropped so every returned bar is complete.
@@ -74,24 +96,33 @@ func AggregateBars(bars []types.Bar, factor int) []types.Bar {
 	}
 	var out []types.Bar
 	for i := 0; i+factor <= len(bars); i += factor {
-		group := bars[i : i+factor]
-		agg := types.Bar{
-			Timestamp: group[0].Timestamp,
-			Open:      group[0].Open,
-			High:      group[0].High,
-			Low:       group[0].Low,
-			Close:     group[factor-1].Close,
+		out = append(out, aggregateGroup(bars[i:i+factor]))
+	}
+	return out
+}
+
+// AggregateByDay is like AggregateBars but never groups bars from different
+// calendar days together, so a higher-timeframe bar can't straddle the overnight
+// gap. US regular-hours sessions fall entirely within one UTC day, so a UTC-day
+// boundary cleanly separates trading days. Partial buckets at the end of a day
+// are dropped, so every returned bar spans exactly `factor` input bars.
+func AggregateByDay(bars []types.Bar, factor int) []types.Bar {
+	if factor <= 1 {
+		return bars
+	}
+	const secondsPerDay = 86400
+	var out []types.Bar
+	i := 0
+	for i < len(bars) {
+		day := bars[i].Timestamp / secondsPerDay
+		j := i
+		for j < len(bars) && j-i < factor && bars[j].Timestamp/secondsPerDay == day {
+			j++
 		}
-		for _, b := range group {
-			if b.High > agg.High {
-				agg.High = b.High
-			}
-			if b.Low < agg.Low {
-				agg.Low = b.Low
-			}
-			agg.Volume += b.Volume
+		if j-i == factor {
+			out = append(out, aggregateGroup(bars[i:j]))
 		}
-		out = append(out, agg)
+		i = j
 	}
 	return out
 }
