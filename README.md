@@ -97,6 +97,17 @@ timestamp,open,high,low,close,volume
    profitable, the median, and where the default params rank) — a broad plateau
    is more trustworthy than a lone spike.
 
+6. Out-of-sample test — the honesty check for the sweep:
+
+   ```
+   go run ./cmd/oos --symbols AAPL,MSFT,NVDA --split 0.7 --cost 0.02
+   ```
+
+   Splits each symbol by time, searches the grid on the TRAIN segment, then
+   scores every combo on the unseen TEST segment. If the best-on-train combo
+   loses on test (it does, on this data), the sweep was fitting noise — a
+   built-in warning against trusting optimized in-sample results.
+
 ## Backtest assumptions
 
 - One open position at a time.

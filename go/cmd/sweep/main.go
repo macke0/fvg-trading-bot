@@ -20,34 +20,15 @@ import (
 
 	"fvgbot/internal/data"
 	"fvgbot/internal/engine"
-	"fvgbot/internal/strategy"
+	"fvgbot/internal/opt"
 	"fvgbot/internal/types"
 )
 
-// combo is one parameter setting and the performance it produced.
-type combo struct {
-	htf      int
-	lookback int
-	rr       float64
-	trades   int
-	wins     int
-	pnl      float64
-	maxDD    float64
+// row pairs a parameter set with the performance it produced.
+type row struct {
+	p opt.Params
+	s engine.Summary
 }
-
-func (c combo) winRate() float64 {
-	if c.trades == 0 {
-		return 0
-	}
-	return float64(c.wins) / float64(c.trades) * 100
-}
-
-// default parameters, so we can show where the "chosen" setting ranks.
-const (
-	defHTF      = 3
-	defLookback = 20
-	defRR       = 2.0
-)
 
 func main() {
 	dataDir := flag.String("data", "../data", "directory containing <SYMBOL>.csv files")
@@ -70,50 +51,18 @@ func main() {
 		log.Fatal("no data loaded")
 	}
 
-	// Parameter grid. SwingMinAge is held at its default (2).
-	htfGrid := []int{2, 3, 4, 6}
-	lookbackGrid := []int{10, 15, 20, 30, 40}
-	rrGrid := []float64{1.0, 1.5, 2.0, 2.5, 3.0}
-
-	var results []combo
-	for _, htf := range htfGrid {
-		for _, lb := range lookbackGrid {
-			for _, rr := range rrGrid {
-				s := strategy.NewLiquiditySweep()
-				s.HTFFactor = htf
-				s.SwingLookback = lb
-				s.RiskReward = rr
-
-				var recs []engine.TradeRecord
-				for _, sym := range symbols {
-					b, ok := bars[sym]
-					if !ok {
-						continue
-					}
-					recs = append(recs, engine.Run(s, sym, b, engine.Config{CostPerTrade: *cost})...)
-				}
-
-				var sum engine.Summary
-				if s := engine.Summarize(recs); len(s) > 0 {
-					sum = s[0]
-				}
-				results = append(results, combo{
-					htf: htf, lookback: lb, rr: rr,
-					trades: sum.Trades, wins: sum.Wins,
-					pnl: sum.TotalPnL, maxDD: sum.MaxDrawdown,
-				})
-			}
-		}
+	var results []row
+	for _, p := range opt.Grid() {
+		results = append(results, row{p: p, s: opt.Evaluate(p, symbols, bars, *cost)})
 	}
-
-	sort.Slice(results, func(i, j int) bool { return results[i].pnl > results[j].pnl })
+	sort.Slice(results, func(i, j int) bool { return results[i].s.TotalPnL > results[j].s.TotalPnL })
 
 	printTable(results, *top)
 	printDistribution(results)
 	printDefaultRank(results)
 }
 
-func printTable(results []combo, top int) {
+func printTable(results []row, top int) {
 	if top > len(results) {
 		top = len(results)
 	}
@@ -122,25 +71,25 @@ func printTable(results []combo, top int) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	fmt.Fprintln(w, "rank\tHTF\tlookback\tRR\ttrades\twin%\tnet P/L\tmaxDD")
 	for i := 0; i < top; i++ {
-		c := results[i]
+		r := results[i]
 		fmt.Fprintf(w, "%d\t%d\t%d\t%.1f\t%d\t%.1f\t%.2f\t%.2f\n",
-			i+1, c.htf, c.lookback, c.rr, c.trades, c.winRate(), c.pnl, c.maxDD)
+			i+1, r.p.HTFFactor, r.p.SwingLookback, r.p.RiskReward,
+			r.s.Trades, r.s.WinRate(), r.s.TotalPnL, r.s.MaxDrawdown)
 	}
 	w.Flush()
 }
 
-func printDistribution(results []combo) {
+func printDistribution(results []row) {
 	n := len(results)
 	profitable := 0
-	for _, c := range results {
-		if c.pnl > 0 {
+	for _, r := range results {
+		if r.s.TotalPnL > 0 {
 			profitable++
 		}
 	}
-	// results are sorted desc by pnl; median is the middle element.
-	median := results[n/2].pnl
-	best := results[0].pnl
-	worst := results[n-1].pnl
+	median := results[n/2].s.TotalPnL
+	best := results[0].s.TotalPnL
+	worst := results[n-1].s.TotalPnL
 
 	fmt.Printf("\nDistribution across all %d combos:\n", n)
 	fmt.Printf("  profitable:  %d / %d (%.0f%%)\n", profitable, n, float64(profitable)/float64(n)*100)
@@ -152,11 +101,12 @@ func printDistribution(results []combo) {
 	fmt.Println("  best far above the median suggests an overfit spike (likely luck).")
 }
 
-func printDefaultRank(results []combo) {
-	for i, c := range results {
-		if c.htf == defHTF && c.lookback == defLookback && c.rr == defRR {
+func printDefaultRank(results []row) {
+	for i, r := range results {
+		if r.p == opt.Default {
 			fmt.Printf("\nDefault params (HTF=%d, lookback=%d, RR=%.1f) rank #%d of %d (net P/L %.2f).\n",
-				defHTF, defLookback, defRR, i+1, len(results), c.pnl)
+				opt.Default.HTFFactor, opt.Default.SwingLookback, opt.Default.RiskReward,
+				i+1, len(results), r.s.TotalPnL)
 			return
 		}
 	}
